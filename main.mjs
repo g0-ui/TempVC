@@ -1,77 +1,52 @@
-// main.mjs - Discord Botのメインプログラム
+// 必要なモジュールをインポート
+const { Client, GatewayIntentBits } = require("discord.js");
+require("dotenv").config();
 
-// 必要なライブラリを読み込み
-import { Client, GatewayIntentBits } from "discord.js";
-import dotenv from "dotenv";
-import express from "express";
-
-// .envファイルから環境変数を読み込み
-dotenv.config();
-
-// Discord Botクライアントを作成
+// Botのクライアントを作成
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds, // サーバー情報取得
-    GatewayIntentBits.GuildMessages, // メッセージ取得
-    GatewayIntentBits.MessageContent, // メッセージ内容取得
-    GatewayIntentBits.GuildMembers, // メンバー情報取得
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
 
-// Botが起動完了したときの処理
+// Botが起動したときの処理
 client.once("ready", () => {
-  console.log(`🎉 ${client.user.tag} が正常に起動しました！`);
-  console.log(`📊 ${client.guilds.cache.size} つのサーバーに参加中`);
+  console.log(`Logged in as ${client.user.tag}`);
 });
 
-// メッセージが送信されたときの処理
-client.on("messageCreate", (message) => {
-  // Bot自身のメッセージは無視
-  if (message.author.bot) return; // 「ping」メッセージに反応
-  if (message.content.toLowerCase() === "ping") {
-    message.reply("🏓 pong!");
-    console.log(`📝 ${message.author.tag} が ping コマンドを使用`);
+// ボイスチャンネルの参加・退出を監視
+client.on("voiceStateUpdate", (oldState, newState) => {
+  // ユーザーがボイスチャンネルに参加した場合
+  if (oldState.channelId === null && newState.channelId !== null) {
+    // ユーザー名を元に一時的なボイスチャンネルを作成
+    newState.guild.channels
+      .create({
+        name: `${newState.member.user.username}'s VC`,
+        type: 2, // ボイスチャンネル
+        parent: newState.channel.parent,
+        userLimit: 10,
+        reason: "Temporary voice channel for the user",
+      })
+      .then((channel) => {
+        // ユーザーを新しいチャンネルに移動
+        newState.setChannel(channel);
+
+        // チャンネルが空になったら削除
+        const interval = setInterval(() => {
+          if (channel.members.size === 0) {
+            clearInterval(interval);
+            channel.delete();
+          }
+        }, 5000);
+      });
+  }
+
+  // ユーザーがボイスチャンネルから退出した場合
+  if (newState.channelId === null && oldState.channelId !== null) {
+    // チャンネルが空になったら削除
+    if (oldState.channel.members.size === 0) {
+      oldState.channel.delete();
+    }
   }
 });
 
-// エラーハンドリング
-client.on("error", (error) => {
-  console.error("❌ Discord クライアントエラー:", error);
-});
-
-// プロセス終了時の処理
-process.on("SIGINT", () => {
-  console.log("🛑 Botを終了しています...");
-  client.destroy();
-  process.exit(0);
-});
-
-// Discord にログイン
-if (!process.env.DISCORD_TOKEN) {
-  console.error("❌ DISCORD_TOKEN が .env ファイルに設定されていません！");
-  process.exit(1);
-}
-
-console.log("🔄 Discord に接続中...");
-client.login(process.env.DISCORD_TOKEN).catch((error) => {
-  console.error("❌ ログインに失敗しました:", error);
-  process.exit(1);
-});
-
-// Express Webサーバーの設定（Render用）
-const app = express();
-const port = process.env.PORT || 3000;
-
-// ヘルスチェック用エンドポイント
-app.get("/", (req, res) => {
-  res.json({
-    status: "Bot is running! 🤖",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// サーバー起動
-app.listen(port, () => {
-  console.log(`🌐 Web サーバーがポート ${port} で起動しました`);
-});
+// Botにログイン
+client.login(process.env.DISCORD_TOKEN);
